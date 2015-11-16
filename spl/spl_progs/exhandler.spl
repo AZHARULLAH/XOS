@@ -1,0 +1,142 @@
+print "enter exhandler";
+
+alias cause S0;
+cause = EFR % 10; //value of cause field
+
+alias badvadd S1;
+badvadd = (EFR / 10) % 100; //value of badvadd
+
+alias ipadd S2;
+ipadd = (EFR / 1000); //gets value of IP at point of execution 
+
+alias virpagno S3;
+virpagno = [PTBR + (badvadd * 2)];
+
+alias physicalsp S4;
+physicalsp = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+
+alias freepage S6;
+
+alias counter S5;
+
+alias cond S10;
+cond = 1;
+
+if(cause != 0) then //cause = 0 means it is a page fault
+	SP = SP + 1;
+	[physicalsp] = 10;
+	inline "JMP 11776"; //jump to exit
+endif;
+
+if(virpagno == -1) then //if it is invalid page
+	SP = SP + 1;
+	[physicalsp] = 10;
+	inline "JMP 11776";
+endif;
+
+//find a free page in memory list
+counter = 25;
+while(counter < 64) do
+	if([MEM_LIST + counter] == 0) then //if free
+		break;
+	endif;
+	counter = counter + 1;
+endwhile;
+
+freepage = counter;
+[MEM_LIST + freepage] = 1;
+
+print "freepage at:";
+print freepage;
+
+if(counter == 64) then
+
+	//using page replacement algo to find free page
+
+	print "counter=64";
+
+	alias startptentry S7;
+	alias ptentry S8;
+	alias swappage S9;
+
+	startptentry = PTBR - 1024 + (badvadd * 2);
+
+	print startptentry;
+
+	while(cond == 1) do //run until victim page is found, start from entry that caused the page fault
+
+		ptentry = (startptentry + 2) % 256;
+
+		//search the PPPT for ref bit 0, stack and shared pages to be excluded		
+		while(ptentry != startptentry) do
+
+			if((ptentry % 8) == 6) then //7 and 8 page is stack
+				ptentry = (ptentry + 2) % 256;
+				continue;
+			endif;
+
+			//ptentry skips 2 and comes to page no entry
+			if([PAGE_TABLE + ptentry + 1] == "01") then //victim page found
+				
+				if([MEM_LIST + [PAGE_TABLE + ptentry]] > 1) then //shared
+					ptentry = (ptentry + 2) % 256;
+				endif;
+			
+				//we have a victim page, find a slot in swap
+				swappage = 448;
+				while(swappage < 512) do
+
+					if([DISK_LIST + swappage] == 0) then
+						store([PAGE_TABLE + ptentry], swappage);
+						[DISK_LIST + swappage] = 1;
+						freepage = [PAGE_TABLE + ptentry];
+						[PAGE_TABLE + ptentry] = swappage;
+						[PAGE_TABLE + ptentry + 1] = "00";
+						break;
+					endif;
+					swappage = swappage + 1;
+
+				endwhile;
+
+				if(swappage == 512) then
+					SP = SP + 1;
+					[physicalsp] = 10;
+					inline "JMP 11776"; 
+				endif;
+
+			endif;
+
+			if([PAGE_TABLE + ptentry + 1] == "11") then
+				[PAGE_TABLE + ptentry + 1] = "01"; //set an unref if already ref
+			endif;
+
+			ptentry = (ptentry + 2) % 256;
+
+		endwhile;
+
+	endwhile;
+
+endif;
+
+//coming to vpageno, if it's in swap, load it to mem
+if(virpagno < 448 && virpagno > 20) then
+	load(freepage,virpagno);
+endif;
+if(virpagno > 447) then //now load and dec in DFL
+	load(freepage,virpagno);
+	[DISK_LIST + virpagno] = [DISK_LIST + virpagno] - 1;
+endif;
+
+ print "I've come here";
+
+[PTBR + (badvadd * 2)] = freepage;
+[PTBR + (badvadd * 2) + 1] = "11";
+
+	 print "I'vecomeheretoo";
+
+SP = SP + 1;
+[physicalsp] = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+//print "physicalsp:";
+//print [physicalsp];
+[physicalsp] = ipadd;
+ireturn;

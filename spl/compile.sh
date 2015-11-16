@@ -1,0 +1,10 @@
+./spl --os $HOME/xos10/spl/spl_progs/os_startup.spl
+./spl --int=1 $HOME/xos10/spl/spl_progs/int1.spl
+./spl --int=2 $HOME/xos10/spl/spl_progs/int2.spl
+./spl --int=3 $HOME/xos10/spl/spl_progs/int3.spl
+./spl --int=4 $HOME/xos10/spl/spl_progs/int4.spl
+./spl --int=5 $HOME/xos10/spl/spl_progs/int5.spl
+./spl --int=6 $HOME/xos10/spl/spl_progs/int6.spl
+./spl --int=7 $HOME/xos10/spl/spl_progs/int7.spl
+./spl --int=timer $HOME/xos10/spl/spl_progs/timer.spl
+./spl --exhandler $HOME/xos10/spl/spl_progs/exnew.spl

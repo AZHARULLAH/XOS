@@ -1,0 +1,174 @@
+alias physicalsp S0;
+physicalsp = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+
+alias systemcallno S1;
+systemcallno = [physicalsp - 1];
+
+alias newpcb S4;
+alias newpid S10;
+
+alias count1 S5; // count1 is the PCB index 
+count1 = 0;
+
+alias counter S6; // general counter
+
+alias pid S7;
+pid = (PTBR - 1024) / 8;
+
+alias currentPCB S8;
+currentPCB = READY_LIST + 32 * pid;
+
+if(systemcallno == 10 || systemcallno == 14) then//common for exit and signal
+
+	//check if there are no running pro
+	counter = 0;
+	while(counter < 32) do
+		if([READY_LIST + (counter * 32) + 1] == 100 + pid) then
+			[READY_LIST + (counter * 32) + 1] = 1; //set it to ready
+		endif;	
+		counter = counter + 1;
+	endwhile;
+
+	if(systemcallno == 14) then
+		[physicalsp - 2] = 0;
+		ireturn;
+	endif;
+
+endif;
+
+if(systemcallno == 10 || systemcallno == 13) then//common for exit and wait
+
+	//check if there are no running pro
+	counter = 0;
+	while(counter < 32) do
+		if([READY_LIST + (counter * 32) + 1] == 1) then
+			break;
+		endif;	
+		counter = counter + 1;
+	endwhile;
+
+	newpid = counter;
+
+endif;
+
+if(systemcallno == 10) then //10 for exit
+
+	if(newpid >= 32) then
+		//print("noprorunning");
+		halt;
+	endif;
+
+	//now close all open instances of the files by curr pro
+	counter = 0;
+	while (counter < 8) do
+		if ([currentPCB + 15 + counter * 2] != -1) then				
+			// we have a valid index to SWOFT
+			// index into it and decrement file count
+			[FILE_TABLE + [currentPCB + 15 + counter * 2] * 2 + 1] = [FILE_TABLE + [currentPCB + 15 + counter * 2] * 2 + 1] - 1;
+			if ([FILE_TABLE + [currentPCB + 15 + counter * 2] * 2 + 1] == 0) then				
+				// there are no more references to the file
+				// invalidate the entry in SWOFT					
+				[FILE_TABLE + [currentPCB + 15 + counter * 2] * 2] = -1;
+			endif;
+			// invalidate the PPOFT by setting fields to -1
+			[currentPCB + 15 + counter * 2] = -1;
+			[currentPCB + 15 + counter * 2 + 1] = -1;	
+		endif;
+		counter = counter + 1;
+	endwhile;
+
+	// set state as terminated
+	[currentPCB + 1] = 0;
+
+	//now free the entries of the page table
+	counter = 0;
+	while (counter < 4) do
+		if ([PTBR + counter * 2] == -1) then
+			// already invalid
+			counter = counter + 1;
+			continue;
+		endif;
+		// check if page table is valid
+		if ([PTBR + counter * 2 + 1] == "01" || [PTBR + counter * 2 + 1] == "11") then
+			// decrement count in memory free list
+			[MEM_LIST + [PTBR + counter * 2]] = [MEM_LIST + [PTBR + counter * 2]] - 1;
+		endif;
+		if ([PTBR + counter * 2 + 1] == "00" && [PTBR + counter * 2] > 447) then
+			// swap block
+			// decrement disk free list entry for this block
+			[DISK_LIST + [PTBR + counter * 2]] = [DISK_LIST + [PTBR + counter * 2]] - 1;
+			// commit the disk free list back into the disk
+			store(6, 20);
+		endif;
+		// invalidating all entries of disk block anyway
+		[PTBR + counter * 2] = -1;
+		[PTBR + counter * 2 + 1] = "00";			
+		counter = counter + 1;
+	endwhile;
+
+endif;
+
+if(systemcallno == 13) then//13 for wait
+
+	alias waitingpid S9;
+	waitingpid = [physicalsp - 3];//arg which has pro pid to wait for		
+
+	//ensure pro whose pid if received is not terminated or waiting
+	if([READY_LIST + (waitingpid * 32) + 1] == 0 || [READY_LIST + (waitingpid * 32) + 1] == 2) then
+		[physicalsp - 2] = -1;
+		ireturn;
+	endif;
+
+	//now change state of current process to 100 + pid
+	[READY_LIST + (pid * 32) + 1] = 100 + waitingpid;
+
+	//now store the context of the current process
+
+	[currentPCB + 2] = BP;
+	[currentPCB + 3] = SP - 1;
+	[currentPCB + 4] = [physicalsp];
+	[currentPCB + 5] = PTBR;
+	[currentPCB + 6] = PTLR;
+	[currentPCB + 7] = R0;
+	[currentPCB + 8] = R1;
+	[currentPCB + 9] = R2;
+	[currentPCB + 10] = R3;
+	[currentPCB + 11] = R4;
+	[currentPCB + 12] = R5;
+	[currentPCB + 13] = R6;
+	[currentPCB + 14] = R7;
+
+endif;
+
+if(systemcallno == 10 || systemcallno == 13) then//common for exit and wait
+
+	//now find next process by traversing PCB
+	newpcb = READY_LIST + newpid * 32;
+	
+	// set the values new process
+	BP = [newpcb + 2];
+	SP = [newpcb + 3];	
+	PTBR = [newpcb + 5];
+	PTLR = [newpcb + 6];
+		
+	// set the value of registers R0 - R7
+	R0 = [newpcb + 7];
+	R1 = [newpcb + 8];
+	R2 = [newpcb + 9];
+	R3 = [newpcb + 10];
+	R4 = [newpcb + 11];
+	R5 = [newpcb + 12];
+	R6 = [newpcb + 13];
+	R7 = [newpcb + 14];
+	
+	SP = SP + 1;
+	alias newphysicalsp S6;
+	newphysicalsp = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+	[newphysicalsp] = [newpcb + 4]; //setting IP to top
+	
+	// set the state field of the new process to running
+	[newpcb + 1] = 2;
+
+endif;
+
+ireturn;

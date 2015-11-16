@@ -1,0 +1,8 @@
+alias counter S15;
+counter = 0
+print "READY_LIST";
+		while(counter<32) do
+			print [READY_LIST + (counter * 32)];
+			counter = counter + 1;
+		endwhile;
+	print "READY_LIST";

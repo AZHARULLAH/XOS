@@ -1,0 +1,135 @@
+alias physicalsp S0;
+physicalsp = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+breakpoint;
+alias systemcallno S1;
+systemcallno = [physicalsp - 1];
+
+alias filename S2;
+filename = [physicalsp - 3];
+
+//print "into exec";
+
+alias nocodeblnew S4; // no of codeblocks of new prog
+
+alias count1 S5; // count1 is the FAT index 
+count1 = 0;
+
+alias counter S6; // general counter
+counter = 0;
+
+alias pid S7;
+pid = (PTBR - 1024) / 8;
+
+alias currentPCB S8;
+currentPCB = READY_LIST + 32 * pid;
+
+if(systemcallno == 9) then //9 for exec
+	
+	while(count1 < 64) do
+		//print [FAT + (count1 * 8)];
+		//print filename; 
+		if([FAT + (count1 * 8)] == filename) then
+			break;
+		endif;
+		count1 = count1 + 1;
+	endwhile;
+
+	//print "Slot found:";
+	//print count1;
+
+	if(count1 == 64) then
+		print "No such file";
+		[physicalsp - 2] = -1;
+		ireturn;
+	endif;
+	breakpoint;
+	nocodeblnew = [FAT + (count1 * 8) + 1]; //size of file
+	nocodeblnew = nocodeblnew / 512; //to get the no of pages
+
+	if(nocodeblnew > 3) then //max 3 pages of code
+		[physicalsp - 2] = -1;
+		ireturn;
+	endif;
+
+	while (counter < 3) do
+		if ([PTBR + counter * 2 + 1] == "01" || [PTBR + counter * 2 + 1] == "11") then
+			// for all validpages of curr pro, remove the pages in memlist
+			[MEM_LIST + [PTBR + counter * 2]] = [MEM_LIST + [PTBR + counter * 2]] - 1;
+		endif;
+		if ([PTBR + counter * 2 + 1] == "00" && [PTBR + counter * 2] > 447) then
+			//same in DFl, reduce by 1
+			[DISK_LIST + [PTBR + counter * 2]] = [DISK_LIST + [PTBR + counter * 2]] - 1;
+		endif;
+		counter = counter + 1;
+	endwhile;
+	breakpoint;
+	load(1,[FAT + (count1 * 8) + 2]); //load basic block to SP
+
+	counter = 0;
+	while(counter < nocodeblnew) do
+		if([SCRATCHPAD + counter] != -1) then
+			[PTBR + (counter * 2)] = [SCRATCHPAD + counter];
+			[PTBR + (counter * 2) + 1] = "00";
+		else	
+			[PTBR + (counter * 2)] = -1;
+			[PTBR + (counter * 2) + 1] = "00";
+		endif;
+		counter = counter + 1;
+	endwhile;
+
+	//remaining entries in PTBR to be invalidated, ie. if pro using <3 pg
+ 	while (counter < 3) do
+		[PTBR + (counter * 2)] = -1;
+		[PTBR + (counter * 2) + 1] = "00";
+		counter = counter + 1;
+	endwhile;
+
+	// change the auxiliary entry for the stack, not ref and valid
+	[[PTBR + 6] * 512] = 0;	
+	[PTBR + 7] = "01";	
+
+	//close all files which are open coz of current process
+	counter = 0;
+	while (counter < 8) do
+		if ([currentPCB + 15 + counter * 2] != -1) then				
+			// we have a valid index to SWOFT
+			// index into it and decrement file count
+			[FILE_TABLE + [currentPCB + 15 + counter * 2] * 2 + 1] = [FILE_TABLE + [currentPCB + 15 + counter * 2] * 2 + 1] - 1;
+			if ([FILE_TABLE + [currentPCB + 15 + counter * 2] * 2 + 1] == 0) then				
+				// there are no more references to the file
+				// invalidate the entry in SWOFT					
+				[FILE_TABLE + [currentPCB + 15 + counter * 2] * 2] = -1;
+			endif;
+			// invalidate the PPOFT by setting fields to -1
+			[currentPCB + 15 + counter * 2] = -1;
+			[currentPCB + 15 + counter * 2 + 1] = -1;	
+		endif;
+		counter = counter + 1;
+	endwhile;	
+
+	// reset SP to 3 * 512
+	SP = 3 * 512;
+		
+	// store zero on top of the stack
+	physicalsp = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+	[physicalsp] = 0;
+	
+	//print("exec done");
+
+	ireturn;
+
+endif;
+
+if(systemcallno == 11) then //11 for getpid
+
+	[physicalsp - 2] = (PTBR - 1024)/8;
+	ireturn;
+
+endif;
+
+if(systemcallno == 12) then //11 for getppid
+
+	[physicalsp - 2] = [currentPCB + 31];
+	ireturn;
+
+endif;

@@ -1,0 +1,145 @@
+alias physicalsp S0;
+physicalsp = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+alias systemcallno S1;
+systemcallno = [physicalsp - 1];
+alias arg1 S2;
+arg1 = [physicalsp - 2];  //This is giving 1536 coz it is return value
+alias i S4; // i is the fat index
+i=0;
+alias j S5; // j is the System wide open file table counter 
+j=0;
+alias k S6; //simple counter for SWOFT
+k=0;
+alias l S8; //simple counter for PPOFT
+l=0;
+
+
+if(systemcallno == 2) then //2 for open
+
+	alias arg2 S3;
+	arg2 = [physicalsp - 3]; //This is giving File name
+	
+	//First check if file name exists on the disk ie. in FAT
+	while(i<64) do
+		if([FAT + (i*8)] == arg2) then
+			print("Fileexistsat");
+			print(i);
+			break;
+		endif;
+		i=i+1;
+	endwhile;
+
+	if(i==64) then
+		[physicalsp - 2] = -1;
+		print("Filenotfound");
+		ireturn;
+	endif;
+
+	// If it is present in fat, search if that file is open in system wide open file table, Cons = FILE_TABLE = 1344
+	// If open, it set in the last
+
+	while(j<64) do //64 entries in SWOFT
+		if([FILE_TABLE + (j * 2)] == i) then //1st word is the FAT index
+			break; // index found
+		endif;
+		j=j+1;
+	endwhile;
+
+	if(j==64) then //File is not open. Search for free entry(ie. -1) and change it
+		while(k<64) do //
+			if([FILE_TABLE + (k * 2)] == -1) then //1st word is the FAT index
+				break; // free slot found
+			endif;
+			k=k+1;
+		endwhile;
+	endif;
+
+	if(k==64) then //no free slot found in SWOFT
+		print("Noslotfornewfile");
+		[physicalsp - 2] = -1;
+		ireturn; 
+	endif;
+
+	[k * 2 + 1] = 0;
+
+	// Now 1st field of Per process open file table has pointer to SWOFT, 2nd has lseek 
+	// Search for that corresponding process in PCB and update the 2 words
+	// A process can open max 8 files. Check if this process has already 8 files. If yes, return invalid
+
+	alias currentPCB S7;
+	currentPCB = READY_LIST + 32 * ((PTBR - 1024) / 8);
+
+	while (l<8) do // search in PPOFT of the currentPCB
+		if([currentPCB + 15 + (2 * l)] == -1) then // if not open, it has -1
+			break;
+		endif;
+	endwhile;
+
+	if(l==8) then // If all 8 files are already open, then return -1
+		[physicalsp - 2] = -1;
+		print("8filesalreadyopen");
+		ireturn;
+	endif;
+
+	// updating the PPOFT of the current process
+	[currentPCB + 15 + (l * 2)] = k;
+	[currentPCB + 15 + (l * 2) + 1] = 0; //lseek position
+
+
+	// i -> FAT index
+	// j -> SWOFT index but for free entry check
+	// k -> SWOFT index
+	// l -> PPOFT index
+
+	// now we have to update the SWOFT details, ie. FAT index and count
+	[FILE_TABLE + (k * 2)] = i;
+	[FILE_TABLE + (k * 2) + 1] = [FILE_TABLE + (k * 2) + 1] + 1;
+
+	//return status ie. success with PPOFT index ie. k
+	[physicalsp - 2] = k;
+	ireturn;
+
+endif; 
+
+
+if(systemcallno == 3) then
+
+	alias arg2 S3;
+	arg2 = [physicalsp - 3]; //gives file descriptor
+	
+	//check if filedescriptor is valid ie. b/w 0 and 7
+
+	if(arg2>7 || arg2<0) then
+		print("Invalidinput");
+		[physicalsp - 2] = -1;
+		ireturn;
+	endif;
+
+	alias currentPCB S7;
+	currentPCB = READY_LIST + 32 * ((PTBR - 1024) / 8);
+
+	//checking if PPOFT entry is valid
+
+	if([currentPCB + 15 + (arg2*2)] == -1) then
+		[physicalsp - 2] = -1;
+		ireturn;
+	endif;
+
+	//File is valid, now decrement open file count
+
+	[FILE_TABLE + ([currentPCB + 15 + (arg2 * 2)] * 2) + 1] = [FILE_TABLE + ([currentPCB + 15 + (arg2 * 2)] * 2) + 1] - 1;
+	if([FILE_TABLE + ([currentPCB + 15 + (arg2 * 2)] * 2) + 1] == 0) then
+		[FILE_TABLE + ([currentPCB + 15 + (arg2 * 2)] * 2)] = -1;
+	endif;
+
+	//set PPOFT to invalid
+
+	[currentPCB + 15 + (arg2 * 2)] = -1;
+	[currentPCB + 15 + (arg2 * 2) + 1] = -1;
+
+	//return success
+
+	[physicalsp - 2] = 0;
+	ireturn;
+	
+endif;

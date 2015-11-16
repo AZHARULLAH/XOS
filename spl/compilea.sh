@@ -1,0 +1,9 @@
+./spl --int=1 $HOME/myxos7/spl/spl_progs/int1a.spl
+./spl --int=2 $HOME/myxos7/spl/spl_progs/int2a.spl
+./spl --int=3 $HOME/myxos7/spl/spl_progs/int3a.spl
+./spl --int=4 $HOME/myxos7/spl/spl_progs/int4a.spl
+./spl --int=5 $HOME/myxos7/spl/spl_progs/int5a.spl
+./spl --int=6 $HOME/myxos7/spl/spl_progs/int6a.spl
+./spl --int=7 $HOME/myxos7/spl/spl_progs/haltprog.spl
+./spl --int=timer $HOME/myxos7/spl/spl_progs/timer.spl
+./spl --exhandler $HOME/myxos7/spl/spl_progs/haltprog.spl

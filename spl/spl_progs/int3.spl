@@ -1,0 +1,107 @@
+alias physicalsp S0;
+physicalsp = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+
+alias systemcallno S1;
+systemcallno = [physicalsp - 1];
+
+alias arg1 S2;
+arg1 = [physicalsp - 2];  //This is giving 1536 coz it is return value
+
+alias i S3; // i is the FAT index
+i=0;
+
+alias j S4; // j is the Lseek position 
+j = 0;
+
+if(systemcallno == 6) then //6 for seek
+
+	alias arg2 S5;
+	arg2 = [physicalsp - 4]; //This is giving File descriptor
+	alias arg3 S6;
+	arg3 = [physicalsp - 3]; //This is giving variable to read to
+
+	if(arg2 > 7 || arg2 < 0) then
+		[physicalsp - 2] = -1;
+		ireturn;
+	endif;
+
+	alias currentPCB S8;
+	currentPCB = READY_LIST + 32 * ((PTBR - 1024) / 8);
+
+	if([currentPCB + 15 + (arg2 * 2)] == -1) then
+		[physicalsp - 2] = -1;
+		ireturn;
+	endif;
+
+	i = [FILE_TABLE + [currentPCB + 15 + (arg2 * 2)] * 2];
+
+	alias size S7;
+	size = [FAT + (i * 8) + 1];
+
+	//check if new lseek is valid
+	if(arg3 < 0 || arg3 > size) then
+		[physicalsp - 2] = -1;
+		ireturn;
+	endif;
+
+	//change lseek in PPOFT
+	[currentPCB + 15 + (arg2 * 2) + 1] = arg3;
+
+	[physicalsp - 2] = 0;
+	ireturn;
+
+endif;
+
+if(systemcallno == 7) then //7 for read
+
+	alias arg2 S5;
+	arg2 = [physicalsp - 4]; //This is giving File descriptor
+	alias arg3 S6;
+	arg3 = [physicalsp - 3]; //This is giving wordread
+
+	if(arg2 > 7 || arg2 < 0) then
+		[physicalsp - 2] = -1;
+		ireturn;
+	endif;
+
+	alias currentPCB S7;
+	currentPCB = READY_LIST + 32 * ((PTBR - 1024) / 8);
+
+	if([currentPCB + 15 + (arg2 * 2)] == -1) then
+		[physicalsp - 2] = -1;
+		ireturn;
+	endif;
+
+	// i is now SWOFT index
+	// j is now lseek position
+
+	i = [currentPCB + 15 + (arg2 * 2)];
+	j = [currentPCB + 15 + (arg2 * 2) + 1];
+
+	alias k S8; // k is FAT index
+	k = [FILE_TABLE + [currentPCB + 15 + (arg2 * 2)] * 2];
+
+	load(1, [FAT + (k * 8) + 1]); //loading basic block to scratchpad
+
+	alias size S9;
+	size = [FAT + (k * 8) + 1];
+
+	//if lseek is at EOF, invalid
+	if(size == j) then
+		[physicalsp - 2] = -1;
+		ireturn;
+	endif; 
+
+	load(1, [SCRATCHPAD + (j / 512)]); //load the block from which the disk is to be read onto the scratchpad
+	
+	// store the word in the stack
+	[physicalsp - 3] = [SCRATCHPAD + (j % 512)]; // word will be at j % 512 (offset)
+	
+	// increment LSEEK position by one in the PPOFT
+	[currentPCB + 15 + arg2 * 2 + 1] = j + 1;
+	
+	// return indicating success
+	[physicalsp - 2] = 0;
+	ireturn;		
+
+endif;

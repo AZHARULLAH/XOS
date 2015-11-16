@@ -1,0 +1,91 @@
+alias physicalsp S0;
+physicalsp = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+
+alias systemcallno S1;
+systemcallno = [physicalsp - 1];
+
+alias arg1 S2;
+arg1 = [physicalsp - 2];  //This is giving 1536 coz it is return value
+
+alias i S3; // i is the SWOFT index
+i=0;
+
+alias j S4; // j is the Lseek position 
+j = 0;
+
+if(systemcallno == 5) then //5 for write
+
+	alias arg2 S5;
+	arg2 = [physicalsp - 3]; //This is giving File descriptor
+	alias arg3 S6;
+	arg3 = [physicalsp - 4]; //This is giving word to write
+
+	//check if file descriptor is valid
+	if(arg2 < 0 || arg2 > 7) then
+		[physicalsp - 2] = -1;
+		ireturn;
+	endif;
+
+	//check if present in SWOFT
+	alias currentPCB S7;
+	currentPCB = READY_LIST + 32 * ((PTBR - 1024) / 8);
+
+	if([currentPCB + 15 + (arg2 * 2)] == -1) then
+		[physicalsp - 2] = -1;
+		ireturn;
+	endif;
+
+	i = [currentPCB + 15 + (arg2 * 2)]; //SWOFT index
+	j = [currentPCB + 15 + (arg2 * 2) + 1]; // Lseek position
+
+	alias k S8; // k is the Fat index 
+	k = 0;
+	alias l S9; // l is counter in basic block
+
+	k = [FILE_TABLE + (i * 8) + 2];
+
+	load(1, [FAT + (k * 8) + 2]); // load basic block from FAT to SP
+
+	l = j / 512; //block # of basic block = lseek / 512
+
+	if([SCRATCHPAD + l] == -1) then //block not present, need to add one
+
+		alias m S9;
+		m = 0; //counter in disk free list
+
+		//check for free block in DFL
+		while(m < 447) do
+			if([FAT + 512 + m] == 0) then
+				break;
+			endif;
+		endwhile; 
+
+		if(m == 447) then
+			[physicalsp - 2] = -1;
+			ireturn;
+		endif;
+
+		[FAT + 512 + m] = 1; //set 1 for free block in DFL
+		[SCRATCHPAD + l] = m; //add block to basic block of file
+		store(1,[FAT + (i * 8) + 2]); //store basic block to disk
+		[FAT + (i * 8) + 1] = [FAT + (i * 8) + 1] + 512; //increment file size in FAT
+		//store FAT and DFL
+		store(5, 19);
+		store(6, 20);
+
+	endif;
+
+	//now write the word onto the block
+
+	alias n S10; // n is block # to which file has to be written to
+
+	n = [SCRATCHPAD + l];
+	load(1,n);
+	[SCRATCHPAD + (j / 512)] = arg3; //writing to block
+	store(1,n);
+	[currentPCB + 15 + (arg2 * 2) + 1] = [currentPCB + 15 + (arg2 * 2) + 1] + 1; //inc for next words
+
+	[physicalsp - 2] = 0;
+	ireturn;
+
+endif;

@@ -1,0 +1,99 @@
+alias physicalsp S0;
+physicalsp = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+
+alias systemcallno S1;
+systemcallno = [physicalsp - 1];
+
+alias arg1 S2;
+arg1 = [physicalsp - 2];  //This is giving 1536 coz it is return value
+
+alias arg2 S3;
+arg2 = [physicalsp - 3]; //This is giving File name
+
+alias i S4; // i is the fat index
+i=0;
+
+alias j S5; // j is the Disk free list index 
+j = 0;
+
+if(systemcallno == 1) then //1 for create
+	
+	// Check if file already exists	
+	// There are max 64 files, each of size 8, name in 0th bit of each
+
+	while(i<64) do
+		if ([FAT + (i * 8)] == arg2) then
+			[physicalsp - 2] = 0; //setting return value as 0 ie success
+			print "Fileexistsat";
+			print i;
+			ireturn;
+		endif;
+		i = i + 1;
+	endwhile;
+
+	// If no file exists, create 1
+	// check Disk Free List  till block no 447 to find free block
+	// free block is indicated by 0
+
+	while(j < 447) do
+		if([DISK_LIST + j] == 0) then
+			break;
+		endif;
+		j = j + 1;
+	endwhile;
+
+	if(j == 447) then
+		[physicalsp - 2] = -1;
+		ireturn; // returning false that there is no disk free
+	endif;
+
+	// check for free entry of FAT block ie [FAT + 2] will have -1 if free
+
+	i=0;
+	while(i<64) do
+		if([FAT + (i * 8) + 2] == -1) then
+			break;
+		endif;
+		i = i + 1;
+	endwhile;
+
+	if(i == 64) then
+		[physicalsp - 2] = -1;
+		ireturn; // returning because no FAT free found
+	endif;
+
+	[FAT + (i * 8)] = arg2; // setting file name
+	[FAT + (i * 8) + 1] = 0; // setting file size, default as 0
+	[FAT + (i * 8) + 2] = j; // setting basic block
+
+	// For using the file, it must be stored in scratchpad
+	// scratchpad is stored in page 1 as os_startup is no longer used
+
+	//loading disk free block to page 1
+	load(1,j);
+
+	alias k S6; // k is just a counter
+	k = 0; 
+
+	while(k<256) do
+		[SCRATCHPAD + k] = -1; //setting all words in basic block to -1
+		k = k + 1;
+	endwhile;
+
+	store(j,1); // storing back disk block
+
+	[DISK_LIST + j] = 1;
+
+	//save back FAT and Disk free list 
+	store(5,19);
+	store(6,20);
+
+	[physicalsp - 2] = 0; //returning 0 for success
+	ireturn;
+ 
+endif;
+
+//print "Hiii";
+//print systemcallno;
+//print arg1;
+//print arg2;
